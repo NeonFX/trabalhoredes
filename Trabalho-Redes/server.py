@@ -54,3 +54,59 @@ def acoes_comandos(conn):
             break
     conn.close()
 
+def gerador_corrida(conn):
+    global corrida_atual, corrida_aceita
+    while True:
+        time.sleep(random.randint(8, 15))
+        with lock:
+            if corrida_aceita:
+                continue
+            distancia_passageiro = round(random.uniform(0.5, 5.0), 1)
+            viagem = round(random.uniform(1.0, 10.0), 1)
+            preco = round(viagem * random.uniform(2.5, 4.0), 2)
+            corrida_atual = (distancia_passageiro, viagem, preco)
+            msg = f"""            
+NOVA CORRIDA!!!
+
+Distância até passageiro: {distancia_passageiro} km
+Distância da corrida: {viagem} km
+Pagamento: R$ {preco}
+
+Digite :accept para aceitar
+"""
+            conn.send(msg.encode())
+            wait = 10
+            start = time.time()
+        while time.time() - start < wait:
+            with lock:
+                if corrida_aceita:
+                    break
+            time.sleep(1)
+        with lock:
+            if not corrida_aceita:
+                if random.random() < 0.5:
+                    preco += random.randint(2, 5)
+                    corrida_atual = (distancia_passageiro, viagem, preco)
+                    conn.send(f"\nPassageiro aumentou oferta para R$ {preco}\n".encode())
+                else:
+                    conn.send("\nCorrida cancelada pelo passageiro\n".encode())
+                    corrida_atual = None
+
+def main():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
+    server.bind((HOST, PORT))
+    server.listen()
+    print("Servidor iniciado...")
+
+    conn, addr = server.accept()
+    print(f"Motorista conectado: {addr}")
+
+    conn.send(f"{timestamp()}: CONECTADO!!\n".encode())
+    threading.Thread(target=acoes_comandos, args=(conn,), daemon=True).start()
+    threading.Thread(target=gerador_corrida, args=(conn,), daemon=True).start()
+    while True:
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()
