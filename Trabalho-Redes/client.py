@@ -25,7 +25,11 @@ def recebe_mensagem(sock):
 def enviar_comando(sock):
     while True:
         cmd = input()
-        sock.send(cmd.encode())
+        try:
+            sock.send(cmd.encode())
+        except:
+            print("Servidor desconectado")
+            break
         if cmd == ":quit":
             break
 

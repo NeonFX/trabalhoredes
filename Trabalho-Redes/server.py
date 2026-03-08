@@ -15,6 +15,13 @@ lock = threading.Lock()
 def timestamp():
     return datetime.now().strftime("%H:%M:%S")
 
+def finalizar_corrida(conn):
+    global corrida_aceita, corrida_atual
+    time.sleep(random.randint(10,20))
+    with lock:
+        corrida_aceita = False
+        corrida_atual = None
+        conn.send(f"{timestamp()} Corrida finalizada!\n".encode())
 
 def acoes_comandos(conn):
     global corrida_aceita, corrida_atual
@@ -27,7 +34,9 @@ def acoes_comandos(conn):
                 with lock:
                     if corrida_atual and not corrida_aceita:
                         corrida_aceita = True
+                        conn.send(f"{timestamp()} Você executou: accept\n".encode())
                         conn.send(f"{timestamp()} Corrida aceita!\n".encode())
+                        threading.Thread(target=finalizar_corrida, args=(conn,), daemon=True).start()
                     else:
                         conn.send(f"{timestamp()} Nenhuma corrida disponível.\n".encode())
             elif data == ":cancel":
@@ -35,6 +44,7 @@ def acoes_comandos(conn):
                     if corrida_aceita:
                         corrida_aceita = False
                         corrida_atual = None
+                        conn.send(f"{timestamp()} Você executou: cancel\n".encode())
                         conn.send(f"{timestamp()} Corrida cancelada.\n".encode())
                     else:
                         conn.send(f"{timestamp()} Você não está em corrida.\n".encode())
@@ -44,8 +54,10 @@ def acoes_comandos(conn):
                         msg = "Status: Em corrida"
                     else:
                         msg = "Status: Livre"
+                    conn.send(f"{timestamp()} Você executou: status\n".encode())
                     conn.send(f"{timestamp()} {msg}\n".encode())
             elif data == ":quit":
+                conn.send(f"{timestamp()} Você executou: quit\n".encode())
                 conn.send("Desconectando...\n".encode())
                 break
             else:
