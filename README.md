@@ -7,13 +7,11 @@ O cliente representa o motorista, que pode aceitar ou cancelar corridas através
 
 # Tecnologias utilizadas
 
-Python 3
-
 Biblioteca socket 
 
 Biblioteca threading
 
-Todas as bibliotecas utilizadas são nativas do Python, não sendo necessário instalar dependências externas.
+Todas as bibliotecas utilizadas são nativas do Python
 
 # Estrutura do projeto
 Trabalho-Redes/
@@ -34,15 +32,15 @@ No terminal:
 
 python server.py
 
-O servidor iniciará e ficará aguardando a conexão de um cliente.
+O servidor iniciará e ficará aguardando a conexão de um client
 
-2. Iniciar o cliente
+2. Iniciar o client
    
 Em outro terminal:
 
 python client.py
 
-Após conectar, o cliente receberá uma mensagem de confirmação.
+Após conectar, o client receberá uma mensagem de confirmação
 
 # Funcionamento
 
@@ -54,9 +52,9 @@ Distância da corrida
 
 Valor da corrida
 
-O motorista pode interagir com o sistema através de comandos enviados pelo cliente.
+O motorista pode interagir com o sistema através dos comandos abaixo
 
-Comandos disponíveis
+Comandos disponíveis:
 
 :accept   → aceita a corrida atual
 
@@ -65,7 +63,6 @@ Comandos disponíveis
 :status   → mostra o status do motorista
 
 :quit     → encerra a conexão
-
 
 # Objetivo acadêmico
 
@@ -79,4 +76,4 @@ Programação concorrente com threads
 
 Troca de mensagens em tempo real
 
-Esta é a Fase 1 do projeto, onde apenas um cliente remoto é suportado.
+Esta é a Fase 1 do projeto, onde apenas um client remoto é suportado.
