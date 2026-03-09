@@ -58,10 +58,10 @@ def acoes_comandos(conn):
                     conn.send(f"{timestamp()} {msg}\n".encode())
             elif data == ":quit":
                 conn.send(f"{timestamp()} Você executou: quit\n".encode())
-                conn.send("Desconectando...\n".encode())
+                conn.send(f"{timestamp()} Desconectando...\n".encode())
                 break
             else:
-                conn.send("Comando inválido\n".encode())
+                conn.send(f"{timestamp()} Comando inválido\n".encode())
         except:
             break
     conn.close()
@@ -86,7 +86,10 @@ Pagamento: R$ {preco}
 
 Digite :accept para aceitar
 """
-            conn.send(msg.encode())
+            try:
+                conn.send(msg.encode())
+            except:
+                break
             wait = 10
             start = time.time()
         while time.time() - start < wait:
@@ -96,12 +99,22 @@ Digite :accept para aceitar
             time.sleep(1)
         with lock:
             if not corrida_aceita:
+                try:
+                    conn.send(f"{timestamp()} Tempo para aceitar expirou\n".encode())
+                except:
+                    break
                 if random.random() < 0.5:
                     preco += random.randint(2, 5)
                     corrida_atual = (distancia_passageiro, viagem, preco)
-                    conn.send(f"\nPassageiro aumentou oferta para R$ {preco}\n".encode())
+                    try:
+                        conn.send(f"{timestamp()} \nPassageiro aumentou oferta para R$ {preco}\n".encode())
+                    except:
+                        break
                 else:
-                    conn.send("\nCorrida cancelada pelo passageiro\n".encode())
+                    try:
+                        conn.send(f"{timestamp()} \nCorrida cancelada pelo passageiro\n".encode())
+                    except:
+                        break
                     corrida_atual = None
 
 def main():
