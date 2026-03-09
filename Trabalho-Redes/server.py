@@ -9,6 +9,7 @@ PORT = 5000
 
 corrida_atual = None
 corrida_aceita = False
+fila_motoristas = []
 lock = threading.Lock()
 
 
@@ -23,7 +24,7 @@ def finalizar_corrida(conn):
         corrida_atual = None
         conn.send(f"{timestamp()} Corrida finalizada!\n".encode())
 
-def acoes_comandos(conn):
+def acoes_comandos(conn, addr):
     global corrida_aceita, corrida_atual
     while True:
         try:
@@ -51,14 +52,18 @@ def acoes_comandos(conn):
             elif data == ":status":
                 with lock:
                     if corrida_aceita:
-                        msg = "Status: Em corrida"
+                        estado = "Em corrida"
                     else:
-                        msg = "Status: Livre"
+                        estado = "Livre"
+                    posicao = fila_motoristas.index(addr) + 1
                     conn.send(f"{timestamp()} Você executou: status\n".encode())
-                    conn.send(f"{timestamp()} {msg}\n".encode())
+                    conn.send(f"{timestamp()} Status: {estado} | Posição na fila: {posicao}\n".encode())
             elif data == ":quit":
                 conn.send(f"{timestamp()} Você executou: quit\n".encode())
                 conn.send(f"{timestamp()} Desconectando...\n".encode())
+                with lock:
+                    if addr in fila_motoristas:
+                        fila_motoristas.remove(addr)
                 break
             else:
                 conn.send(f"{timestamp()} Comando inválido\n".encode())
@@ -99,6 +104,7 @@ Digite :accept para aceitar
             time.sleep(1)
         with lock:
             if not corrida_aceita:
+                corrida_atual = None
                 try:
                     conn.send(f"{timestamp()} Tempo para aceitar expirou\n".encode())
                 except:
@@ -115,7 +121,6 @@ Digite :accept para aceitar
                         conn.send(f"{timestamp()} \nCorrida cancelada pelo passageiro\n".encode())
                     except:
                         break
-                    corrida_atual = None
 
 def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
@@ -125,9 +130,11 @@ def main():
 
     conn, addr = server.accept()
     print(f"Motorista conectado: {addr}")
+    with lock:
+        fila_motoristas.append(addr)
 
     conn.send(f"{timestamp()}: CONECTADO!!\n".encode())
-    threading.Thread(target=acoes_comandos, args=(conn,), daemon=True).start()
+    threading.Thread(target=acoes_comandos, args=(conn, addr), daemon=True).start()
     threading.Thread(target=gerador_corrida, args=(conn,), daemon=True).start()
     while True:
         time.sleep(1)
