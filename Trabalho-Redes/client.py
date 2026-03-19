@@ -37,7 +37,11 @@ def enviar_comando(sock):
 
 def main():
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #cria o socket do cliente usando IPv4 e TCP
-    client.connect((HOST, PORT)) #estabelece conexão com o servidor no endereço e porta definidos
+    try:
+        client.connect((HOST, PORT)) #estabelece conexão com o servidor no endereço e porta definidos
+    except ConnectionRefusedError:
+        print("Não foi possível conectar ao servidor. Verifique se ele está rodando.")
+        return
     threading.Thread(target=recebe_mensagem, args=(client,), daemon=True).start() #cria uma thread separada para receber mensagens do servidor
     mostrar_comandos()
     enviar_comando(client)
