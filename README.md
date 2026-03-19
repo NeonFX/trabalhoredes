@@ -1,15 +1,18 @@
-# Simulação de Uber – Projeto de Redes
+# Simulação de Uber – Projeto de Redes - Fase 2
 
 Este projeto simula, de forma simplificada, o funcionamento do aplicativo de motorista da Uber utilizando comunicação em rede no modelo cliente-servidor.
 O sistema utiliza sockets e threads para permitir comunicação assíncrona entre o servidor e um motorista conectado.
 O servidor simula o sistema da plataforma, gerando chamadas de corrida aleatórias.
 O cliente representa o motorista, que pode aceitar ou cancelar corridas através de comandos.
+Na Fase 2, o sistema evolui para suportar multiusuários, fila de motoristas e persistência de dados, aproximando ainda mais o comportamento de um sistema real.
 
 # Tecnologias utilizadas
 
 Biblioteca socket 
 
 Biblioteca threading
+
+Biblioteca json (persistência de dados)
 
 Todas as bibliotecas utilizadas são nativas do Python
 
@@ -19,6 +22,8 @@ Trabalho-Redes/
  ├── server.py
  
  └── client.py
+ 
+ └── dados.json
 
 server.py → responsável por gerar corridas e processar comandos do motorista
 
@@ -30,9 +35,10 @@ client.py → interface do motorista que recebe chamadas e envia comandos
    
 No terminal:
 
-python server.py
+python server.py (n_clientes)
+ex: python server.py 3
 
-O servidor iniciará e ficará aguardando a conexão de um client
+O servidor iniciará e ficará aguardando a conexão de clientes
 
 2. Iniciar o client
    
@@ -42,15 +48,29 @@ python client.py
 
 Após conectar, o client receberá uma mensagem de confirmação
 
+o sistema solicitará o nome do motorista.
+
+Se for novo, o saldo inicia em 0
+
+Se já existir, o saldo é recuperado
+
 # Funcionamento
 
-O servidor gera chamadas de corrida em intervalos aleatórios contendo:
+O servidor gerencia múltiplos motoristas simultaneamente e mantém uma fila de atendimento.
 
-Distância até o passageiro
+Apenas o primeiro da fila recebe corridas
 
-Distância da corrida
+Após finalizar uma corrida, o motorista acumula ganhos
 
-Valor da corrida
+Os dados são salvos automaticamente
+
+Cada corrida contém:
+
+- Distância até o passageiro
+
+- Distância da corrida
+
+- Valor da corrida
 
 O motorista pode interagir com o sistema através dos comandos abaixo
 
@@ -60,8 +80,14 @@ Comandos disponíveis:
 
 :cancel   → cancela a corrida aceita
 
-:status   → mostra o status do motorista
+:status   → mostra o status do motorista, contendo:
 
+   - estado (Livre / Em corrida)
+            
+   - posição na fila
+
+   - saldo acumulado
+         
 :quit     → encerra a conexão
 
 # Objetivo acadêmico
@@ -76,4 +102,20 @@ Programação concorrente com threads
 
 Troca de mensagens em tempo real
 
-Esta é a Fase 1 do projeto, onde apenas um client remoto é suportado.
+Persistência de dados
+
+Gerenciamento de múltiplos clientes
+
+Esta é a Fase 2 do projeto, novidades:
+
+- Suporte a múltiplos usuários simultâneos
+
+- Limite de conexões configurável via terminal
+
+- Fila de motoristas
+
+- Sistema de saldo por usuário
+
+- Persistência de dados em arquivo (json)
+
+- Recuperação de dados ao reconectar
