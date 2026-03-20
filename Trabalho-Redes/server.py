@@ -2,30 +2,62 @@ import socket
 import threading
 import random
 import time
+import json
+import os
+import sys
 from datetime import datetime
 
 #define onde o servidor irá rodar 
 HOST = '127.0.0.1' 
 PORT = 5000 
+dados_arquivo = "motoristas.json"
+max_conexoes = int(sys.argv[1]) if len(sys.argv) > 1 else 3
 
 #váriaveis que controlam o estado da corrida e a fila de motoristas
 corrida_atual = None 
 corrida_aceita = False
 fila_motoristas = []
+dados_motoristas = {}
+clientes_conectados = {}  
 lock = threading.Lock() #usado para evitar condições de corrida ao acessar as variáveis compartilhadas entre threads
 
+def carregar_dados():
+    """Lê motoristas.json do disco para a memória."""
+    global dados_motoristas
+    if os.path.exists(dados_arquivo):
+        try:
+            with open(dados_arquivo, "r") as f:
+                dados_motoristas = json.load(f)
+        except Exception:
+            dados_motoristas = {}
+    else:
+        dados_motoristas = {}
+ 
+def salvar_dados():
+    """Persiste o dicionário em disco atomicamente."""
+    tmp = dados_arquivo + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(dados_motoristas, f, indent=2)
+    os.replace(tmp, dados_arquivo)
 
 #retorna a hora atual formatada para exibir nas mensagens
 def timestamp():
     return datetime.now().strftime("%H:%M:%S")
 
-def finalizar_corrida(conn):
-    global corrida_aceita, corrida_atual
+def finalizar_corrida(nome, conn, valor_corrida):
     time.sleep(random.randint(10,20))  #simula uma duração aleatória da corrida entre 10 e 20 segundos
     with lock: #atualiza o estado da corrida para finalizada
-        corrida_aceita = False
-        corrida_atual = None
+        if nome in clientes_conectados:
+            clientes_conectados[nome]['em_corrida'] = False
+        elif nome in dados_motoristas:
+            dados_motoristas[nome]['faturamento'] += valor_corrida
+        else:
+            dados_motoristas[nome] = {'faturamento': valor_corrida}
+        salvar_dados()
+        faturamento = dados_motoristas[nome]['faturamento']
         conn.send(f"{timestamp()} Corrida finalizada!\n".encode())
+        conn.send(f"Você ganhou R$ {valor_corrida:.2f}.\n".encode())
+        conn.send(f"Faturamento total: R$ {faturamento:.2f}\n".encode())
 
 def acoes_comandos(conn, addr): #processa os comandos enviados pelo motorista
     global corrida_aceita, corrida_atual #variáveis globais que controlam o estado da corrida
