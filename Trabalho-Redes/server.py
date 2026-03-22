@@ -21,8 +21,7 @@ dados_motoristas = {}
 clientes_conectados = {}  
 lock = threading.Lock() #usado para evitar condições de corrida ao acessar as variáveis compartilhadas entre threads
 
-def carregar_dados():
-    """Lê motoristas.json do disco para a memória."""
+def carregar_dados(): #carrega os dados do arquivo json
     global dados_motoristas
     if os.path.exists(dados_arquivo):
         try:
@@ -33,8 +32,7 @@ def carregar_dados():
     else:
         dados_motoristas = {}
  
-def salvar_dados():
-    """Persiste o dicionário em disco atomicamente."""
+def salvar_dados(): #salva os dados no arquivo json
     tmp = dados_arquivo + ".tmp"
     with open(tmp, "w") as f:
         json.dump(dados_motoristas, f, indent=2)
@@ -59,51 +57,72 @@ def finalizar_corrida(nome, conn, valor_corrida):
         conn.send(f"Você ganhou R$ {valor_corrida:.2f}.\n".encode())
         conn.send(f"Faturamento total: R$ {faturamento:.2f}\n".encode())
 
-def acoes_comandos(conn, addr): #processa os comandos enviados pelo motorista
-    global corrida_aceita, corrida_atual #variáveis globais que controlam o estado da corrida
-    while True: #loop 
+def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motorista
+    while True:
         try:
             data = conn.recv(1024).decode().strip() #servidor recebe os dados enviados pelo cliente
             if not data:
                 break
-            if data == ":accept": #serve para aceitar a corrida atual
-                with lock:
-                    if corrida_atual and not corrida_aceita:
-                        corrida_aceita = True
-                        conn.send(f"{timestamp()} Você executou: accept\n".encode())
-                        conn.send(f"{timestamp()} Corrida aceita!\n".encode())
-                        threading.Thread(target=finalizar_corrida, args=(conn,), daemon=True).start()
-                    else:
-                        conn.send(f"{timestamp()} Nenhuma corrida disponível.\n".encode())
-            elif data == ":cancel": #serve para cancelar a corrida atual
-                with lock:
-                    if corrida_aceita:
-                        corrida_aceita = False
-                        corrida_atual = None
-                        conn.send(f"{timestamp()} Você executou: cancel\n".encode())
-                        conn.send(f"{timestamp()} Corrida cancelada.\n".encode())
-                    else:
-                        conn.send(f"{timestamp()} Você não está em corrida.\n".encode())
-            elif data == ":status": #verifica o status do motorista, se ele está livre ou não, e sua posição na fila
-                with lock:
-                    if corrida_aceita:
-                        estado = "Em corrida"
-                    else:
-                        estado = "Livre"
-                    posicao = fila_motoristas.index(addr) + 1
-                    conn.send(f"{timestamp()} Você executou: status\n".encode())
-                    conn.send(f"{timestamp()} Status: {estado} | Posição na fila: {posicao}\n".encode())
-            elif data == ":quit":
-                conn.send(f"{timestamp()} Você executou: quit\n".encode())
-                conn.send(f"{timestamp()} Desconectando...\n".encode())
-                with lock:
-                    if addr in fila_motoristas:
-                        fila_motoristas.remove(addr)
-                break
-            else:
-                conn.send(f"{timestamp()} Comando inválido\n".encode())
-        except:
+        except Exception:
             break
+
+        if data == ":accept": #serve para aceitar a corrida atual
+            with lock:
+                info = clientes_conectados.get(nome)
+                if info is None:
+                    break
+                corrida = info.get('corrida_atual')
+                em_corrida = info.get('em_corrida', False)
+ 
+                if corrida and not em_corrida:
+                    info['corrida_aceita'] = True
+                    info['em_corrida']     = True
+                    _, _, valor = corrida
+                    conn.send(f"{timestamp()} Você executou: accept\n".encode())
+                    conn.send(f"{timestamp()} Corrida aceita!\n".encode())
+                    threading.Thread(target=finalizar_corrida, args=(nome, conn, valor),daemon=True).start()
+                elif em_corrida:
+                    conn.send(f"{timestamp()} Você já está em uma corrida.\n".encode())
+                else:
+                    conn.send(f"{timestamp()} Nenhuma corrida disponível no momento.\n".encode())
+ 
+        elif data == ":cancel": #serve para cancelar a corrida atual
+            with lock:
+                info = clientes_conectados.get(nome)
+                if info and info.get('em_corrida'):
+                    info['em_corrida']     = False
+                    info['corrida_atual']  = None
+                    info['corrida_aceita'] = False
+                    conn.send(f"{timestamp()} Você executou: cancel\n".encode())
+                    conn.send(f"{timestamp()} Corrida cancelada.\n".encode())
+                else:
+                    conn.send(f"{timestamp()} Você não está em corrida.\n".encode())
+ 
+        elif data == ":status": #mostra o status do motorista, se ele está livre ou não, e sua posição na fila
+            with lock:
+                info = clientes_conectados.get(nome)
+                if info is None:
+                    break
+                estado  = "Em corrida" if info.get('em_corrida') else "Livre"
+                posicao = fila_motoristas.index(nome) + 1 if nome in fila_motoristas else "?"
+                fat     = dados_motoristas.get(nome, {}).get('faturamento', 0.0)
+            conn.send(f"{timestamp()} Você executou: status\n".encode())
+            conn.send(f"{timestamp()} Status: {estado} | "
+                      f"Posição na fila: {posicao} | "
+                      f"Faturamento total: R$ {fat:.2f}\n".encode())
+        elif data == ":quit":
+            conn.send(f"{timestamp()} Você executou: quit\n".encode())
+            conn.send(f"{timestamp()} Desconectando...\n".encode())
+            break
+        else:
+            conn.send(f"{timestamp()} Comando inválido. Use :accept, :cancel, :status ou :quit\n".encode())
+
+    with lock:
+        if nome in fila_motoristas:
+            fila_motoristas.remove(nome) #tirar da fila quando quitar
+        if nome in clientes_conectados:
+            del clientes_conectados[nome]
+    print(f"Motorista '{nome}' desconectado ({addr}).")
     conn.close()
 
 def gerador_corrida(nome, conn):
@@ -161,7 +180,7 @@ Digite :accept para aceitar
                 conn.send(f"{timestamp()} Tempo para aceitar expirou\n".encode())
             except:
                 break
-            
+
             if random.random() < 0.5: #50% de chance de o passageiro aumentar a oferta
                 preco += random.randint(2, 5)
                 with lock:
