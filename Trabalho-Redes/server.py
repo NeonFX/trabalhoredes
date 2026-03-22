@@ -106,18 +106,26 @@ def acoes_comandos(conn, addr): #processa os comandos enviados pelo motorista
             break
     conn.close()
 
-def gerador_corrida(conn):
-    global corrida_atual, corrida_aceita
+def gerador_corrida(nome, conn):
     while True:
-        time.sleep(random.randint(8, 15)) #gera uma nova corrida num intervalo aleatório entre 8 e 15 segundos
+        time.sleep(random.randint(8, 15))
+        with lock: #verificando caso o motorista saiu
+            if nome not in clientes_conectados:
+                break
+            em_corrida = clientes_conectados[nome]['em_corrida']
+        if em_corrida:
+            continue
+        distancia_passageiro = round(random.uniform(0.5, 5.0), 1) #distância do passageiro até o motorista
+        viagem = round(random.uniform(1.0, 10.0), 1) #distância da corrida
+        preco = round(viagem * random.uniform(2.5, 4.0), 2) #calcula o preço da corrida baseado na distância
+ 
         with lock:
-            if corrida_aceita:
-                continue
-            distancia_passageiro = round(random.uniform(0.5, 5.0), 1) #distância do passageiro até o motorista
-            viagem = round(random.uniform(1.0, 10.0), 1) #distância da corrida
-            preco = round(viagem * random.uniform(2.5, 4.0), 2) #calcula o preço da corrida baseado na distância 
-            corrida_atual = (distancia_passageiro, viagem, preco)
-            msg = f"""            
+            if nome not in clientes_conectados:
+                break
+            clientes_conectados[nome]['corrida_atual']  = (distancia_passageiro, viagem, preco)
+            clientes_conectados[nome]['corrida_aceita'] = False
+ 
+        msg = f"""            
 NOVA CORRIDA!!!
 
 Distância até passageiro: {distancia_passageiro} km
@@ -126,36 +134,49 @@ Pagamento: R$ {preco}
 
 Digite :accept para aceitar
 """
+        try:
+            conn.send(msg.encode())
+        except:
+            break
+        start = time.time() #10 seg pra aceitar a corrida
+        aceita = False
+        while time.time() - start < 10:
+            with lock:
+                if nome not in clientes_conectados:
+                    return
+                aceita = clientes_conectados[nome].get('corrida_aceita', False)
+            if aceita:
+                break
+            time.sleep(1)
+
+        with lock:
+            if nome not in clientes_conectados:
+                break
+            aceita = clientes_conectados[nome].get('corrida_aceita', False)
+            if not aceita:
+                clientes_conectados[nome]['corrida_atual'] = None
+ 
+        if not aceita:
             try:
-                conn.send(msg.encode())
+                conn.send(f"{timestamp()} Tempo para aceitar expirou\n".encode())
             except:
                 break
-            wait = 10
-            start = time.time()
-        while time.time() - start < wait:
-            with lock:
-                if corrida_aceita:
-                    break
-            time.sleep(1)
-        with lock:
-            if not corrida_aceita:
-                corrida_atual = None
+            
+            if random.random() < 0.5: #50% de chance de o passageiro aumentar a oferta
+                preco += random.randint(2, 5)
+                with lock:
+                    if nome in clientes_conectados:
+                        clientes_conectados[nome]['corrida_atual'] = (distancia_passageiro, viagem, preco)
                 try:
-                    conn.send(f"{timestamp()} Tempo para aceitar expirou\n".encode())
+                    conn.send(f"{timestamp()} Passageiro aumentou a oferta para R$ {preco:.2f}. "
+                              f"Digite :accept para aceitar.\n".encode())
                 except:
                     break
-                if random.random() < 0.5:
-                    preco += random.randint(2, 5)
-                    corrida_atual = (distancia_passageiro, viagem, preco)
-                    try:
-                        conn.send(f"{timestamp()} \nPassageiro aumentou oferta para R$ {preco}\n".encode())
-                    except:
-                        break
-                else:
-                    try:
-                        conn.send(f"{timestamp()} \nCorrida cancelada pelo passageiro\n".encode())
-                    except:
-                        break
+            else:
+                try:
+                    conn.send(f"{timestamp()} Corrida cancelada pelo passageiro.\n".encode())
+                except:
+                    break
 
 def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #cria o socket do servidor usando IPv4 e TCP
