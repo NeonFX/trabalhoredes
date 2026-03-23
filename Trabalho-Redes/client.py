@@ -1,5 +1,6 @@
 import socket
 import threading
+from time import time
 
 HOST = '127.0.0.1'
 PORT = 5000
@@ -33,9 +34,11 @@ def enviar_comando(sock):
             print("Servidor desconectado")
             break
         if cmd == ":quit":
+            time.sleep(0.5)
             break
 
 def main():
+    mostrar_comandos()
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #cria o socket do cliente usando IPv4 e TCP
     try:
         client.connect((HOST, PORT)) #estabelece conexão com o servidor no endereço e porta definidos
@@ -43,7 +46,6 @@ def main():
         print("Não foi possível conectar ao servidor. Verifique se ele está rodando.")
         return
     threading.Thread(target=recebe_mensagem, args=(client,), daemon=True).start() #cria uma thread separada para receber mensagens do servidor
-    mostrar_comandos()
     enviar_comando(client)
     client.close() #encerra a conexão com o servidor 
 

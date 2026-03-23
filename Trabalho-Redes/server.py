@@ -10,15 +10,16 @@ from datetime import datetime
 #define onde o servidor irá rodar 
 HOST = '127.0.0.1' 
 PORT = 5000 
-dados_arquivo = "motoristas.json"
-max_conexoes = int(sys.argv[1]) if len(sys.argv) > 1 else 3
 
-#váriaveis que controlam o estado da corrida e a fila de motoristas
-corrida_atual = None 
-corrida_aceita = False
+#arquivo onde os dados dos motoristas serão armazenados
+dados_arquivo = "motoristas.json"
+max_conexoes = int(sys.argv[1]) if len(sys.argv) > 1 else 3 #se digitar um numero ele vai ser o limite de conexao, se nao digitar nada vai ser 3 como padrao
+
+#váriaveis que controlam a fila de motoristas e os dados dos motoristas
 fila_motoristas = []
 dados_motoristas = {}
 clientes_conectados = {}  
+
 lock = threading.Lock() #usado para evitar condições de corrida ao acessar as variáveis compartilhadas entre threads
 
 def carregar_dados(): #carrega os dados do arquivo json
@@ -38,8 +39,7 @@ def salvar_dados(): #salva os dados no arquivo json
         json.dump(dados_motoristas, f, indent=2)
     os.replace(tmp, dados_arquivo)
 
-#retorna a hora atual formatada para exibir nas mensagens
-def timestamp():
+def timestamp(): #retorna a hora atual formatada para exibir nas mensagens
     return datetime.now().strftime("%H:%M:%S")
 
 def finalizar_corrida(nome, conn, valor_corrida):
@@ -47,10 +47,10 @@ def finalizar_corrida(nome, conn, valor_corrida):
     with lock: #atualiza o estado da corrida para finalizada
         if nome in clientes_conectados:
             clientes_conectados[nome]['em_corrida'] = False
-        elif nome in dados_motoristas:
-            dados_motoristas[nome]['faturamento'] += valor_corrida
-        else:
-            dados_motoristas[nome] = {'faturamento': valor_corrida}
+        if nome not in dados_motoristas:
+            dados_motoristas[nome] = {'faturamento': 0.0}
+        dados_motoristas[nome]['faturamento'] += valor_corrida
+
         salvar_dados()
         faturamento = dados_motoristas[nome]['faturamento']
         conn.send(f"{timestamp()} Corrida finalizada!\n".encode())
@@ -90,8 +90,8 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
             with lock:
                 info = clientes_conectados.get(nome)
                 if info and info.get('em_corrida'):
-                    info['em_corrida']     = False
-                    info['corrida_atual']  = None
+                    info['em_corrida'] = False
+                    info['corrida_atual'] = None
                     info['corrida_aceita'] = False
                     conn.send(f"{timestamp()} Você executou: cancel\n".encode())
                     conn.send(f"{timestamp()} Corrida cancelada.\n".encode())
@@ -111,8 +111,11 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
                       f"Posição na fila: {posicao} | "
                       f"Faturamento total: R$ {fat:.2f}\n".encode())
         elif data == ":quit":
-            conn.send(f"{timestamp()} Você executou: quit\n".encode())
-            conn.send(f"{timestamp()} Desconectando...\n".encode())
+            try:
+                conn.send(f"{timestamp()} Você executou: quit\n".encode())
+                conn.send(f"{timestamp()} Desconectando...\n".encode())
+            except:
+                pass
             break
         else:
             conn.send(f"{timestamp()} Comando inválido. Use :accept, :cancel, :status ou :quit\n".encode())
@@ -120,7 +123,9 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
     with lock:
         if nome in fila_motoristas:
             fila_motoristas.remove(nome) #tirar da fila quando quitar
+            print(f"[DEBUG] Fila após saída de {nome}: {fila_motoristas}")
         if nome in clientes_conectados:
+            clientes_conectados[nome]['parar'].set() #sinaliza para as threads que o motorista saiu
             del clientes_conectados[nome]
     print(f"Motorista '{nome}' desconectado ({addr}).")
     conn.close()
@@ -130,6 +135,8 @@ def gerador_corrida(nome, conn):
         time.sleep(random.randint(8, 15))
         with lock: #verificando caso o motorista saiu
             if nome not in clientes_conectados:
+                break
+            if clientes_conectados[nome]['parar'].is_set():
                 break
             em_corrida = clientes_conectados[nome]['em_corrida']
         if em_corrida:
@@ -197,22 +204,85 @@ Digite :accept para aceitar
                 except:
                     break
 
-def main():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #cria o socket do servidor usando IPv4 e TCP
-    server.bind((HOST, PORT)) #associa o socket a um endereço IP e porta definidos
-    server.listen() #servidor começa a aguardar conexões de clientes
-    print("Servidor iniciado...")
-
-    conn, addr = server.accept() #servidor aceita a conexão do cliente 
-    print(f"Motorista conectado: {addr}")
-    with lock:
-        fila_motoristas.append(addr)
-
+def iniciar_sessao(conn, addr):
+    """
+    Solicita o nome do motorista, verifica/cria cadastro e
+    inicia as duas threads de trabalho.
+    """
     conn.send(f"{timestamp()}: CONECTADO!!\n".encode())
-    threading.Thread(target=acoes_comandos, args=(conn, addr), daemon=True).start() #cria a thread encarregada de processar as solicitações do cliente
-    threading.Thread(target=gerador_corrida, args=(conn,), daemon=True).start()
+    conn.send("Digite seu nome para entrar: \n".encode())
+
+    try:
+        nome = conn.recv(256).decode().strip()
+    except Exception:
+        conn.close()
+        return
+ 
+    if not nome:
+        conn.send(f"Nome inválido. Encerrando conexão.\n".encode())
+        conn.close()
+        return
+ 
+    with lock: #verifica se nome já está conectado agora
+        if nome in clientes_conectados:
+            conn.send(f"{timestamp()} Nome '{nome}' já está conectado. Tente outro nome.\n".encode())
+            conn.close()
+            return
+
+        if nome not in dados_motoristas: #recupera ou cria dados persistidos
+            dados_motoristas[nome] = {'faturamento': 0.0}
+            salvar_dados()
+            conn.send(f"{timestamp()} Bem-vindo, {nome}! Conta criada com faturamento R$ 0,00.\n".encode())
+        else:
+            fat = dados_motoristas[nome]['faturamento']
+            conn.send(f"{timestamp()} Bem-vindo de volta, {nome}! "
+                      f"Faturamento acumulado: R$ {fat:.2f}\n".encode())
+            
+        fila_motoristas.append(nome)
+        clientes_conectados[nome] = {
+            'conn': conn,
+            'addr': addr,
+            'em_corrida': False,
+            'corrida_atual': None,
+            'corrida_aceita': False,
+            'parar': threading.Event(),
+        }
+ 
+    posicao = fila_motoristas.index(nome) + 1
+    conn.send(f"{timestamp()} Você está na posição {posicao} da fila.\n".encode())
+    print(f"Motorista '{nome}' conectado ({addr}). Fila: {fila_motoristas}")
+ 
+    threading.Thread(target=acoes_comandos, args=(nome, conn, addr), daemon=True).start()
+    threading.Thread(target=gerador_corrida, args=(nome, conn), daemon=True).start()
+
+def main():
+    carregar_dados()
+ 
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((HOST, PORT))
+    server.listen(max_conexoes)
+    print(f"Servidor iniciado em {HOST}:{PORT} | Limite de conexões: {max_conexoes}")
+ 
     while True:
-        time.sleep(1)
+        try:
+            conn, addr = server.accept()
+        except KeyboardInterrupt:
+            print("\nServidor encerrado.")
+            with lock:
+                salvar_dados()
+            break
+ 
+        with lock:
+            total = len(clientes_conectados)
+ 
+        if total >= max_conexoes:
+            conn.send(f"{timestamp()} Servidor cheio. Tente novamente mais tarde.\n".encode())
+            conn.close()
+            print(f"Conexão recusada ({addr}): servidor lotado.")
+            continue
+        threading.Thread(target=iniciar_sessao, args=(conn, addr), daemon=True).start()
+
 # "daemon = true" indica que as threads são secundárias e encerram automaticamente quando o programa principal é finalizado.
 
 if __name__ == "__main__":
