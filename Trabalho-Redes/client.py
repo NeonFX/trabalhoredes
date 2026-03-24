@@ -14,6 +14,23 @@ def mostrar_comandos():
     print(":quit    -> encerra o programa")
     print("=================================\n")
 
+#formata a mensagem recebida do servidor de acordo com seu conteúdo
+def formatar_mensagem(msg):
+    if "NOVA CORRIDA" in msg:
+        return f"\n===== ALERTA ===== {msg.strip()}\n=================================\n"
+    
+    elif "Você executou" in msg:
+        return f"[RESPOSTA] {msg.strip()}"
+    
+    elif "Corrida finalizada" in msg or "Você ganhou" in msg or "Faturamento total" in msg:
+        return f"[RESULTADO] {msg.strip()}"
+    
+    elif "Passageiro aumentou" in msg or "Tempo para aceitar" in msg or "cancelada pelo passageiro" in msg:
+        return f"\n===== AVISO ===== {msg.strip()}"
+    
+    else:
+        return msg.strip()
+
 #função responsável por receber mensagens do servidor e exibi-las
 def recebe_mensagem(sock): 
     while True:
@@ -21,7 +38,7 @@ def recebe_mensagem(sock):
             msg = sock.recv(1024).decode() #cliente recebe mensagens do servidor em até 1024 bytes e converte para string
             if not msg:
                 break
-            print(msg)
+            print(formatar_mensagem(msg))
         except:
             break #fecha a conexão se nehuma mensagem for recebida ou se ocorrer um erro
 

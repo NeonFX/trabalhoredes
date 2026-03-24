@@ -21,6 +21,7 @@ dados_motoristas = {}
 clientes_conectados = {}  
 
 lock = threading.Lock() #usado para evitar condições de corrida ao acessar as variáveis compartilhadas entre threads
+lock_send = threading.Lock() #usado para evitar que duas threads enviem mensagens ao mesmo tempo para o mesmo cliente
 
 def carregar_dados(): #carrega os dados do arquivo json
     global dados_motoristas
@@ -53,9 +54,10 @@ def finalizar_corrida(nome, conn, valor_corrida):
 
         salvar_dados()
         faturamento = dados_motoristas[nome]['faturamento']
-        conn.send(f"{timestamp()} Corrida finalizada!\n".encode())
-        conn.send(f"Você ganhou R$ {valor_corrida:.2f}.\n".encode())
-        conn.send(f"Faturamento total: R$ {faturamento:.2f}\n".encode())
+        with lock_send:
+            conn.send(f"{timestamp()} Corrida finalizada!\n".encode())
+            conn.send(f"Você ganhou R$ {valor_corrida:.2f}.\n".encode())
+            conn.send(f"Faturamento total: R$ {faturamento:.2f}\n".encode())
 
 def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motorista
     while True:
@@ -78,13 +80,16 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
                     info['corrida_aceita'] = True
                     info['em_corrida']     = True
                     _, _, valor = corrida
-                    conn.send(f"{timestamp()} Você executou: accept\n".encode())
-                    conn.send(f"{timestamp()} Corrida aceita!\n".encode())
+                    with lock_send:
+                        conn.send(f"{timestamp()} Você executou: accept\n".encode())
+                        conn.send(f"{timestamp()} Corrida aceita!\n".encode())
                     threading.Thread(target=finalizar_corrida, args=(nome, conn, valor),daemon=True).start()
                 elif em_corrida:
-                    conn.send(f"{timestamp()} Você já está em uma corrida.\n".encode())
+                    with lock_send:
+                        conn.send(f"{timestamp()} Você já está em uma corrida.\n".encode())
                 else:
-                    conn.send(f"{timestamp()} Nenhuma corrida disponível no momento.\n".encode())
+                    with lock_send:
+                        conn.send(f"{timestamp()} Nenhuma corrida disponível no momento.\n".encode())
  
         elif data == ":cancel": #serve para cancelar a corrida atual
             with lock:
@@ -93,10 +98,12 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
                     info['em_corrida'] = False
                     info['corrida_atual'] = None
                     info['corrida_aceita'] = False
-                    conn.send(f"{timestamp()} Você executou: cancel\n".encode())
-                    conn.send(f"{timestamp()} Corrida cancelada.\n".encode())
+                    with lock_send:
+                        conn.send(f"{timestamp()} Você executou: cancel\n".encode())
+                        conn.send(f"{timestamp()} Corrida cancelada.\n".encode())
                 else:
-                    conn.send(f"{timestamp()} Você não está em corrida.\n".encode())
+                    with lock_send:
+                        conn.send(f"{timestamp()} Você não está em corrida.\n".encode())
  
         elif data == ":status": #mostra o status do motorista, se ele está livre ou não, e sua posição na fila
             with lock:
@@ -106,19 +113,22 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
                 estado  = "Em corrida" if info.get('em_corrida') else "Livre"
                 posicao = fila_motoristas.index(nome) + 1 if nome in fila_motoristas else "?"
                 fat     = dados_motoristas.get(nome, {}).get('faturamento', 0.0)
-            conn.send(f"{timestamp()} Você executou: status\n".encode())
-            conn.send(f"{timestamp()} Status: {estado} | "
-                      f"Posição na fila: {posicao} | "
-                      f"Faturamento total: R$ {fat:.2f}\n".encode())
+            with lock_send:
+                conn.send(f"{timestamp()} Você executou: status\n".encode())
+                conn.send(f"{timestamp()} Status: {estado} | "
+                          f"Posição na fila: {posicao} | "
+                          f"Faturamento total: R$ {fat:.2f}\n".encode())
         elif data == ":quit":
             try:
-                conn.send(f"{timestamp()} Você executou: quit\n".encode())
-                conn.send(f"{timestamp()} Desconectando...\n".encode())
+                with lock_send:
+                    conn.send(f"{timestamp()} Você executou: quit\n".encode())
+                    conn.send(f"{timestamp()} Desconectando...\n".encode())
             except:
                 pass
             break
         else:
-            conn.send(f"{timestamp()} Comando inválido. Use :accept, :cancel, :status ou :quit\n".encode())
+            with lock_send:
+                conn.send(f"{timestamp()} Comando inválido. Use :accept, :cancel, :status ou :quit\n".encode())
 
     with lock:
         if nome in fila_motoristas:
@@ -161,7 +171,8 @@ Pagamento: R$ {preco}
 Digite :accept para aceitar
 """
         try:
-            conn.send(msg.encode())
+            with lock_send:
+                conn.send(msg.encode())
         except:
             break
         start = time.time() #10 seg pra aceitar a corrida
@@ -184,23 +195,25 @@ Digite :accept para aceitar
  
         if not aceita:
             try:
-                conn.send(f"{timestamp()} Tempo para aceitar expirou\n".encode())
+                with lock_send:
+                    conn.send(f"{timestamp()} Tempo para aceitar expirou\n".encode())
             except:
                 break
-
             if random.random() < 0.5: #50% de chance de o passageiro aumentar a oferta
                 preco += random.randint(2, 5)
                 with lock:
                     if nome in clientes_conectados:
                         clientes_conectados[nome]['corrida_atual'] = (distancia_passageiro, viagem, preco)
                 try:
-                    conn.send(f"{timestamp()} Passageiro aumentou a oferta para R$ {preco:.2f}. "
-                              f"Digite :accept para aceitar.\n".encode())
+                    with lock_send:
+                        conn.send(f"{timestamp()} Passageiro aumentou a oferta para R$ {preco:.2f}. "
+                                  f"Digite :accept para aceitar.\n".encode())
                 except:
                     break
             else:
                 try:
-                    conn.send(f"{timestamp()} Corrida cancelada pelo passageiro.\n".encode())
+                    with lock_send:
+                        conn.send(f"{timestamp()} Corrida cancelada pelo passageiro.\n".encode())
                 except:
                     break
 
