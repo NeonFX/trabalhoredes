@@ -55,9 +55,9 @@ def finalizar_corrida(nome, conn, valor_corrida):
         salvar_dados()
         faturamento = dados_motoristas[nome]['faturamento']
         with lock_send:
-            conn.send(f"{timestamp()} Corrida finalizada!\n".encode())
-            conn.send(f"Você ganhou R$ {valor_corrida:.2f}.\n".encode())
-            conn.send(f"Faturamento total: R$ {faturamento:.2f}\n".encode())
+            conn.send(f"[RESULTADO] {timestamp()} Corrida finalizada!\n".encode())
+            conn.send(f"[RESULTADO] Você ganhou R$ {valor_corrida:.2f}.\n".encode())
+            conn.send(f"[RESULTADO] Faturamento total: R$ {faturamento:.2f}\n".encode())
 
 def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motorista
     while True:
@@ -81,15 +81,15 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
                     info['em_corrida']     = True
                     _, _, valor = corrida
                     with lock_send:
-                        conn.send(f"{timestamp()} Você executou: accept\n".encode())
-                        conn.send(f"{timestamp()} Corrida aceita!\n".encode())
+                        conn.send(f"[RESPOSTA] {timestamp()} Você executou: accept\n".encode())
+                        conn.send(f"[RESPOSTA] {timestamp()} Corrida aceita!\n".encode())
                     threading.Thread(target=finalizar_corrida, args=(nome, conn, valor),daemon=True).start()
                 elif em_corrida:
                     with lock_send:
-                        conn.send(f"{timestamp()} Você já está em uma corrida.\n".encode())
+                        conn.send(f"[INFO] {timestamp()} Você já está em uma corrida.\n".encode())
                 else:
                     with lock_send:
-                        conn.send(f"{timestamp()} Nenhuma corrida disponível no momento.\n".encode())
+                        conn.send(f"[INFO] {timestamp()} Nenhuma corrida disponível no momento.\n".encode())
  
         elif data == ":cancel": #serve para cancelar a corrida atual
             with lock:
@@ -99,11 +99,11 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
                     info['corrida_atual'] = None
                     info['corrida_aceita'] = False
                     with lock_send:
-                        conn.send(f"{timestamp()} Você executou: cancel\n".encode())
-                        conn.send(f"{timestamp()} Corrida cancelada.\n".encode())
+                        conn.send(f"[RESPOSTA] {timestamp()} Você executou: cancel\n".encode())
+                        conn.send(f"[RESPOSTA] {timestamp()} Corrida cancelada.\n".encode())
                 else:
                     with lock_send:
-                        conn.send(f"{timestamp()} Você não está em corrida.\n".encode())
+                        conn.send(f"[INFO] {timestamp()} Você não está em corrida.\n".encode())
  
         elif data == ":status": #mostra o status do motorista, se ele está livre ou não, e sua posição na fila
             with lock:
@@ -114,21 +114,21 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
                 posicao = fila_motoristas.index(nome) + 1 if nome in fila_motoristas else "?"
                 fat     = dados_motoristas.get(nome, {}).get('faturamento', 0.0)
             with lock_send:
-                conn.send(f"{timestamp()} Você executou: status\n".encode())
-                conn.send(f"{timestamp()} Status: {estado} | "
+                conn.send(f"[RESPOSTA] {timestamp()} Você executou: status\n".encode())
+                conn.send(f"[RESPOSTA] {timestamp()} Status: {estado} | "
                           f"Posição na fila: {posicao} | "
                           f"Faturamento total: R$ {fat:.2f}\n".encode())
         elif data == ":quit":
             try:
                 with lock_send:
-                    conn.send(f"{timestamp()} Você executou: quit\n".encode())
-                    conn.send(f"{timestamp()} Desconectando...\n".encode())
+                    conn.send(f"[RESPOSTA] {timestamp()} Você executou: quit\n".encode())
+                    conn.send(f"[INFO] {timestamp()} Desconectando...\n".encode())
             except:
                 pass
             break
         else:
             with lock_send:
-                conn.send(f"{timestamp()} Comando inválido. Use :accept, :cancel, :status ou :quit\n".encode())
+                conn.send(f"[INFO] {timestamp()} Comando inválido. Use :accept, :cancel, :status ou :quit\n".encode())
 
     with lock:
         if nome in fila_motoristas:
@@ -161,8 +161,7 @@ def gerador_corrida(nome, conn):
             clientes_conectados[nome]['corrida_atual']  = (distancia_passageiro, viagem, preco)
             clientes_conectados[nome]['corrida_aceita'] = False
  
-        msg = f"""            
-NOVA CORRIDA!!!
+        msg = f"""[ALERTA] {timestamp()} NOVA CORRIDA!!!
 
 Distância até passageiro: {distancia_passageiro} km
 Distância da corrida: {viagem} km
@@ -196,9 +195,10 @@ Digite :accept para aceitar
         if not aceita:
             try:
                 with lock_send:
-                    conn.send(f"{timestamp()} Tempo para aceitar expirou\n".encode())
+                    conn.send(f"[AVISO] {timestamp()} Tempo para aceitar expirou\n".encode())
             except:
                 break
+
             if random.random() < 0.5: #50% de chance de o passageiro aumentar a oferta
                 preco += random.randint(2, 5)
                 with lock:
@@ -206,31 +206,27 @@ Digite :accept para aceitar
                         clientes_conectados[nome]['corrida_atual'] = (distancia_passageiro, viagem, preco)
                 try:
                     with lock_send:
-                        conn.send(f"{timestamp()} Passageiro aumentou a oferta para R$ {preco:.2f}. "
+                        conn.send(f"[AVISO] {timestamp()} Passageiro aumentou a oferta para R$ {preco:.2f}. "
                                   f"Digite :accept para aceitar.\n".encode())
                 except:
                     break
             else:
                 try:
                     with lock_send:
-                        conn.send(f"{timestamp()} Corrida cancelada pelo passageiro.\n".encode())
+                        conn.send(f"[AVISO] {timestamp()} Corrida cancelada pelo passageiro.\n".encode())
                 except:
                     break
 
-def iniciar_sessao(conn, addr):
-    """
-    Solicita o nome do motorista, verifica/cria cadastro e
-    inicia as duas threads de trabalho.
-    """
-    conn.send(f"{timestamp()}: CONECTADO!!\n".encode())
-    conn.send("Digite seu nome para entrar: \n".encode())
+def iniciar_sessao(conn, addr): #solicita o nome do motorista, verifica ou cria cadastro e inicia as duas threads
+    conn.send(f"[INFO] {timestamp()}: CONECTADO!!\n".encode())
+    conn.send(f"[INFO] Digite seu nome para entrar: \n".encode())
 
     try:
         nome = conn.recv(256).decode().strip()
     except Exception:
         conn.close()
         return
- 
+    
     if not nome:
         conn.send(f"Nome inválido. Encerrando conexão.\n".encode())
         conn.close()
@@ -238,17 +234,17 @@ def iniciar_sessao(conn, addr):
  
     with lock: #verifica se nome já está conectado agora
         if nome in clientes_conectados:
-            conn.send(f"{timestamp()} Nome '{nome}' já está conectado. Tente outro nome.\n".encode())
+            conn.send(f"[INFO] {timestamp()} Nome '{nome}' já está conectado. Tente outro nome.\n".encode())
             conn.close()
             return
 
         if nome not in dados_motoristas: #recupera ou cria dados persistidos
             dados_motoristas[nome] = {'faturamento': 0.0}
             salvar_dados()
-            conn.send(f"{timestamp()} Bem-vindo, {nome}! Conta criada com faturamento R$ 0,00.\n".encode())
+            conn.send(f"[INFO] {timestamp()} Bem-vindo, {nome}! Conta criada com faturamento R$ 0,00.\n".encode())
         else:
             fat = dados_motoristas[nome]['faturamento']
-            conn.send(f"{timestamp()} Bem-vindo de volta, {nome}! "
+            conn.send(f"[INFO] {timestamp()} Bem-vindo de volta, {nome}! "
                       f"Faturamento acumulado: R$ {fat:.2f}\n".encode())
             
         fila_motoristas.append(nome)
@@ -262,21 +258,19 @@ def iniciar_sessao(conn, addr):
         }
  
     posicao = fila_motoristas.index(nome) + 1
-    conn.send(f"{timestamp()} Você está na posição {posicao} da fila.\n".encode())
+    conn.send(f"[INFO] {timestamp()} Você está na posição {posicao} da fila.\n".encode())
     print(f"Motorista '{nome}' conectado ({addr}). Fila: {fila_motoristas}")
- 
     threading.Thread(target=acoes_comandos, args=(nome, conn, addr), daemon=True).start()
     threading.Thread(target=gerador_corrida, args=(nome, conn), daemon=True).start()
 
 def main():
     carregar_dados()
- 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((HOST, PORT))
     server.listen(max_conexoes)
     print(f"Servidor iniciado em {HOST}:{PORT} | Limite de conexões: {max_conexoes}")
- 
+
     while True:
         try:
             conn, addr = server.accept()
@@ -285,17 +279,15 @@ def main():
             with lock:
                 salvar_dados()
             break
- 
         with lock:
             total = len(clientes_conectados)
- 
         if total >= max_conexoes:
-            conn.send(f"{timestamp()} Servidor cheio. Tente novamente mais tarde.\n".encode())
+            conn.send(f"[INFO] {timestamp()} Servidor cheio. Tente novamente mais tarde.\n".encode())
             conn.close()
             print(f"Conexão recusada ({addr}): servidor lotado.")
             continue
+        
         threading.Thread(target=iniciar_sessao, args=(conn, addr), daemon=True).start()
-
 # "daemon = true" indica que as threads são secundárias e encerram automaticamente quando o programa principal é finalizado.
 
 if __name__ == "__main__":
