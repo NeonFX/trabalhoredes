@@ -74,9 +74,9 @@ Cada corrida contém:
 
 - Valor da corrida (R$)
 
-O motorista pode interagir com o sistema através dos comandos abaixo
-
 O motorista tem 10 segundos para aceitar cada corrida. Caso não aceite, o passageiro pode cancelar ou aumentar a oferta (50% de chance para cada).
+
+O motorista pode interagir com o sistema através dos comandos abaixo
 
 Comandos disponíveis:
 
