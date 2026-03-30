@@ -20,8 +20,15 @@ max_conexoes = int(sys.argv[1]) if len(sys.argv) > 1 else 3 #se digitar um numer
 fila_motoristas = []
 dados_motoristas = {}
 clientes_conectados = {}  
+conexoes_ativas = 0
 
 lock = threading.Lock() #usado para evitar condições de corrida ao acessar as variáveis compartilhadas entre threads
+
+def liberar_slot_conexao():
+    global conexoes_ativas
+    with lock:
+        if conexoes_ativas > 0:
+            conexoes_ativas -= 1
 
 def carregar_dados(): #carrega os dados do arquivo json
     global dados_motoristas
@@ -152,6 +159,7 @@ def acoes_comandos(nome, conn, addr): #processa os comandos enviados pelo motori
             salvar_dados()
         print(f"Motorista '{nome}' desconectado ({addr}).")
         conn.close()
+        liberar_slot_conexao()
 
 def gerador_corrida(nome, conn):
     try:
@@ -267,54 +275,62 @@ def tratar_interrupcao(sig, frame):
 
 
 def iniciar_sessao(conn, addr): #solicita o nome do motorista, verifica ou cria cadastro e inicia as duas threads
-    conn.send(f"[INFO] {timestamp()}: CONECTADO!!\n".encode())
-    conn.send(f"[INFO] Digite seu nome para entrar: \n".encode())
-
+    sessao_iniciada = False
     try:
-        nome = conn.recv(256).decode().strip()
-    except Exception:
-        conn.close()
-        return
-    
-    if not nome:
-        conn.send(f"[AVISO] {timestamp()}: Nome inválido. Encerrando conexão.\n".encode())
-        conn.close()
-        return
- 
-    with lock: #verifica se nome já está conectado agora
-        if nome in clientes_conectados:
-            conn.send(f"[AVISO] {timestamp()} Nome '{nome}' já está conectado. Tente outro nome.\n".encode())
-            conn.close()
-            return
+        conn.send(f"[INFO] {timestamp()}: CONECTADO!!\n".encode())
+        conn.send(f"[INFO] Digite seu nome para entrar: \n".encode())
 
-        if nome not in dados_motoristas: #recupera ou cria dados persistidos
-            dados_motoristas[nome] = {'faturamento': 0.0}
-            salvar_dados()
-            conn.send(f"[INFO] {timestamp()} Bem-vindo, {nome}! Conta criada com faturamento R$ 0,00.\n".encode())
-        else:
-            fat = dados_motoristas[nome]['faturamento']
-            conn.send(f"[INFO] {timestamp()} Bem-vindo de volta, {nome}! "
-                      f"Faturamento acumulado: R$ {fat:.2f}\n".encode())
-            
-        fila_motoristas.append(nome)
-        clientes_conectados[nome] = {
-            'conn': conn,
-            'addr': addr,
-            'em_corrida': False,
-            'corrida_atual': None,
-            'corrida_aceita': False,
-            'corrida_id': 0, #identificador único da corrida aceita
-            'parar': threading.Event(),
-            'lock_send': threading.Lock(), #lock individual para evitar envios simultâneos ao mesmo cliente
-        }
+        try:
+            nome = conn.recv(256).decode().strip()
+        except Exception:
+            return
+        
+        if not nome:
+            conn.send(f"[AVISO] {timestamp()}: Nome inválido. Encerrando conexão.\n".encode())
+            return
  
-    posicao = fila_motoristas.index(nome) + 1
-    conn.send(f"[INFO] {timestamp()} Você está na posição {posicao} da fila.\n".encode())
-    print(f"Motorista '{nome}' conectado ({addr}). Fila: {fila_motoristas}")
-    threading.Thread(target=acoes_comandos, args=(nome, conn, addr), daemon=True).start()
-    threading.Thread(target=gerador_corrida, args=(nome, conn), daemon=True).start()
+        with lock: #verifica se nome já está conectado agora
+            if nome in clientes_conectados:
+                conn.send(f"[AVISO] {timestamp()} Nome '{nome}' já está conectado. Tente outro nome.\n".encode())
+                return
+
+            if nome not in dados_motoristas: #recupera ou cria dados persistidos
+                dados_motoristas[nome] = {'faturamento': 0.0}
+                salvar_dados()
+                conn.send(f"[INFO] {timestamp()} Bem-vindo, {nome}! Conta criada com faturamento R$ 0,00.\n".encode())
+            else:
+                fat = dados_motoristas[nome]['faturamento']
+                conn.send(f"[INFO] {timestamp()} Bem-vindo de volta, {nome}! "
+                        f"Faturamento acumulado: R$ {fat:.2f}\n".encode())
+                
+            fila_motoristas.append(nome)
+            clientes_conectados[nome] = {
+                'conn': conn,
+                'addr': addr,
+                'em_corrida': False,
+                'corrida_atual': None,
+                'corrida_aceita': False,
+                'corrida_id': 0, #identificador único da corrida aceita
+                'parar': threading.Event(),
+                'lock_send': threading.Lock(), #lock individual para evitar envios simultâneos ao mesmo cliente
+            }
+ 
+        posicao = fila_motoristas.index(nome) + 1
+        conn.send(f"[INFO] {timestamp()} Você está na posição {posicao} da fila.\n".encode())
+        print(f"Motorista '{nome}' conectado ({addr}). Fila: {fila_motoristas}")
+        sessao_iniciada = True
+        threading.Thread(target=acoes_comandos, args=(nome, conn, addr), daemon=True).start()
+        threading.Thread(target=gerador_corrida, args=(nome, conn), daemon=True).start()
+    finally:
+        if not sessao_iniciada:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            liberar_slot_conexao()
 
 def main():
+    global conexoes_ativas
     carregar_dados()
     signal.signal(signal.SIGINT, tratar_interrupcao)
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -335,8 +351,12 @@ def main():
                 salvar_dados()
             break
         with lock:
-            total = len(clientes_conectados)
-        if total >= max_conexoes:
+            if conexoes_ativas >= max_conexoes:
+                lotado = True
+            else:
+                lotado = False
+                conexoes_ativas += 1
+        if lotado:
             conn.send(f"[AVISO] {timestamp()} Servidor cheio. Tente novamente mais tarde.\n".encode())
             conn.close()
             print(f"Conexão recusada ({addr}): servidor lotado.")
